@@ -625,6 +625,14 @@ pre.static { border: 0; padding: 12px 16px; }
 .gt-stage { color: var(--pen); font-family: var(--f-code); }
 .p6dlg { border-radius: 12px; }
 
+/* pinned tab bar */
+.tabbar { position: sticky; top: 0; z-index: 20; background: var(--paper); padding-top: env(safe-area-inset-top, 0px); }
+.tabbar .tabs { margin-top: 0; }
+.top { padding-bottom: 14px; }
+.tabbar.stuck { box-shadow: 0 6px 12px -8px rgba(24, 33, 43, .25); }
+.side { top: calc(env(safe-area-inset-top, 0px) + 64px); }
+.sheet, section.tab > * { scroll-margin-top: 64px; }
+
 </style>
 </head>
 <body>
@@ -5001,8 +5009,10 @@ function shell() {
         <button type="button" id="fontDown" aria-label="${T.fontDown}">A−</button><button type="button" id="fontUp" aria-label="${T.fontUp}">A+</button></div>
     </div>
   </div>
-  <nav class="tabs" role="tablist">${T.tabs.map((t, i) => `<button type="button" role="tab" id="tb${i}" aria-controls="tp${i}" aria-selected="${i === UI.tab}" data-tab="${i}"><span class="n">${i + 1}</span>${t}</button>`).join('')}</nav>
 </div></header>
+<div class="tabbar"><div class="wrap">
+  <nav class="tabs" role="tablist">${T.tabs.map((t, i) => `<button type="button" role="tab" id="tb${i}" aria-controls="tp${i}" aria-selected="${i === UI.tab}" data-tab="${i}"><span class="n">${i + 1}</span>${t}</button>`).join('')}</nav>
+</div></div>
 <main class="wrap">
   ${tabs.map((f, i) => `<section class="tab" id="tp${i}" role="tabpanel" aria-labelledby="tb${i}">${f()}</section>`).join('\n  ')}
 </main>`;
@@ -5467,7 +5477,11 @@ function selectTab(i) {
   $$('section.tab').forEach((s, k) => { s.hidden = k !== i; });
   if (ST1) ST1.stop(); if (ST3) ST3.stop();
   if (i === 4 || i === 5) pyStart();
+  // with the tab bar pinned, start the new tab at the top of its content rather than mid-page
+  const m = document.querySelector('main'), bar = document.querySelector('.tabbar');
+  if (m && bar) { const y = m.getBoundingClientRect().top + window.scrollY - bar.offsetHeight; if (window.scrollY > y) window.scrollTo({ top: y }); }
 }
+window.addEventListener('scroll', () => { const bar = document.querySelector('.tabbar'), top = document.querySelector('.top'); if (bar && top) bar.classList.toggle('stuck', window.scrollY > top.offsetHeight - 1); }, { passive: true });
 let fontPx = 16;
 function start() {
   T = LANGS[lang]; N = NAR[lang]; AI = APPINFO[lang];
