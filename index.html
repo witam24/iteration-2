@@ -633,6 +633,11 @@ pre.static { border: 0; padding: 12px 16px; }
 .side { top: calc(env(safe-area-inset-top, 0px) + 64px); }
 .sheet, section.tab > * { scroll-margin-top: 64px; }
 
+/* editor: no inner scrolling; the box grows with the code and scrolls sideways as one piece */
+.ed { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; }
+.ed-no { flex: none; max-height: none; overflow: visible; position: sticky; left: 0; z-index: 1; background: var(--code-bg); }
+.ed textarea { flex: none; resize: none; overflow: hidden; height: auto; min-height: 0; max-height: none; }
+
 </style>
 </head>
 <body>
@@ -3885,6 +3890,8 @@ async function pyRun(code, tests, post) {
 
 /* ---- helpers ---- */
 const P6 = { cur: null, armed: false };
+// no 查看答案 for the guided examples, fill-in questions, and the charity walk (d2), bus-interval (d4) and lift (d6) scenarios
+const p6NoAns = q => q.group === 'guided' || q.group === 'fill' || (q.group === 'write' && (q.id === 'd2' || q.id === 'd4' || q.id === 'd6'));
 const p6Key = id => `iter2-p6-${lang}-${id}`;
 function p6Load(id) { try { return localStorage.getItem(p6Key(id)); } catch (e) { return null; } }
 function p6Save(id, v) { try { localStorage.setItem(p6Key(id), v); } catch (e) { /* ignore */ } }
@@ -4182,7 +4189,7 @@ function p6Render(q) {
     <div class="two p6work">
       <div class="sheet"><div class="sheet-head"><h3>${L.yourCode}</h3><span class="p6eng" id="p6Eng"></span></div><div class="sheet-body" style="display:grid;gap:10px">
         ${editor}
-        <div class="row"><button type="button" class="btn primary" id="p6Check">${L.check}</button><button type="button" class="btn" id="p6Run">${L.run}</button><button type="button" class="btn" id="p6Reset">${L.reset}</button><button type="button" class="btn" id="p6TraceBtn">${L.trace}</button><button type="button" class="btn p6ansbtn" id="p6AnsBtn">${L.answer}</button></div>
+        <div class="row"><button type="button" class="btn primary" id="p6Check">${L.check}</button><button type="button" class="btn" id="p6Run">${L.run}</button><button type="button" class="btn" id="p6Reset">${L.reset}</button><button type="button" class="btn" id="p6TraceBtn">${L.trace}</button>${p6NoAns(q) ? '' : `<button type="button" class="btn p6ansbtn" id="p6AnsBtn">${L.answer}</button>`}</div>
         ${q.hints && q.hints.length ? `<div class="p6hints"><button type="button" class="btn small" id="p6Hint">${L.hint(1, q.hints.length)}</button><ol id="p6HintList"></ol></div>` : ''}
         ${q.tests[0].in.length ? `<label class="p6in" for="p6In"><span>${L.runIn}</span><textarea id="p6In" rows="${Math.min(16, Math.max(6, q.tests[0].in.length + 1))}" spellcheck="false">${esc(q.tests[0].in.join('\n'))}</textarea></label>` : ''}
       </div></div>
@@ -4249,10 +4256,22 @@ function initTab6() {
     } else {
       const ed = $('#p6Ed'), no = $('#p6No');
       ed.value = saved !== null ? saved : (q.starter || '');
-      const nums = () => { no.textContent = Array.from({ length: Math.max(8, ed.value.split('\n').length) }, (_, i) => i + 1).join('\n'); };
+      // the editor never scrolls inside itself: it grows to fit every line, and long lines widen it so the
+      // whole box (numbers included) scrolls sideways together. Line numbers therefore always line up.
+      const box = ed.parentElement;
+      const nums = () => {
+        no.textContent = Array.from({ length: Math.max(12, ed.value.split('\n').length) }, (_, i) => i + 1).join('\n');
+        const base = Math.max(0, box.clientWidth - no.offsetWidth);
+        ed.style.width = base + 'px'; ed.style.height = 'auto';
+        if (ed.scrollWidth > ed.clientWidth) ed.style.width = (ed.scrollWidth + 2) + 'px';
+        ed.style.height = Math.max(ed.scrollHeight, no.scrollHeight) + 'px';
+        ed.scrollTop = 0; ed.scrollLeft = 0;
+      };
       nums();
+      requestAnimationFrame(() => { nums(); box.scrollLeft = 0; });
+      if (window.ResizeObserver) { if (P6.ro) P6.ro.disconnect(); let lastW = box.clientWidth; P6.ro = new ResizeObserver(() => { if (box.clientWidth !== lastW) { lastW = box.clientWidth; requestAnimationFrame(nums); } }); P6.ro.observe(box); }
       ed.oninput = () => { nums(); p6Save(q.id, ed.value); };
-      ed.onscroll = () => { no.scrollTop = ed.scrollTop; };
+      ed.onscroll = () => { ed.scrollTop = 0; ed.scrollLeft = 0; };
       ed.onkeydown = e => {
         const s = ed.selectionStart, t = ed.selectionEnd, v = ed.value;
         if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ed.setRangeText('    ', s, t, 'end'); ed.dispatchEvent(new Event('input')); }
@@ -4271,12 +4290,12 @@ function initTab6() {
     const hb = $('#p6Hint');
     if (hb) { let shown = 0; hb.onclick = () => { if (shown >= q.hints.length) return; $('#p6HintList').insertAdjacentHTML('beforeend', `<li>${esc(q.hints[shown])}</li>`); shown++; hb.textContent = shown >= q.hints.length ? L.hintDone : L.hint(shown + 1, q.hints.length); hb.disabled = shown >= q.hints.length; }; }
     const modal = $('#p6Modal');
-    const closeModal = () => { modal.hidden = true; $('#p6AnsBtn').focus(); };
-    $('#p6AnsBtn').onclick = () => { modal.hidden = false; $('#p6Stay').focus(); };
+    const closeModal = () => { modal.hidden = true; if ($('#p6AnsBtn')) $('#p6AnsBtn').focus(); };
+    if ($('#p6AnsBtn')) $('#p6AnsBtn').onclick = () => { modal.hidden = false; $('#p6Stay').focus(); };
     $('#p6Stay').onclick = closeModal;
     modal.onclick = e => { if (e.target === modal) closeModal(); };
     modal.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
-    $('#p6Give').onclick = () => { modal.hidden = true; gauntlet(showAnswer, () => $('#p6AnsBtn').focus(), q.id); };
+    $('#p6Give').onclick = () => { modal.hidden = true; gauntlet(showAnswer, () => { if ($('#p6AnsBtn')) $('#p6AnsBtn').focus(); }, q.id); };
     const showAnswer = () => {
       const lines = q.ref.split('\n').map((l, n) => `<div class="ln"><span class="no">${n + 1}</span><span>${hl(l)}</span></div>`).join('');
       const blanks = q.answers ? `<p class="p6lab">${L.blanksHead}</p><div class="p6blankans">${Object.keys(q.answers).sort().map(k => `<div><b>(${k})</b> <code>${esc(q.answers[k])}</code></div>`).join('')}</div>` : '';
@@ -4387,6 +4406,7 @@ function initTab6() {
 /*INSTANCE-END*/
 
 const P5 = { cur: null, armed: false };
+const p5NoAns = () => false; // debugging tab keeps its 查看答案 button
 /*INSTANCE-START*/
 function tab5() {
   const L = P5L(), items = DEBUGS[lang];
@@ -4425,7 +4445,7 @@ function p5Render(q) {
     <div class="two p6work">
       <div class="sheet"><div class="sheet-head"><h3>${L.yourCode}</h3><span class="p6eng" id="p5Eng"></span></div><div class="sheet-body" style="display:grid;gap:10px">
         ${editor}
-        <div class="row"><button type="button" class="btn primary" id="p5Check">${L.check}</button><button type="button" class="btn" id="p5Run">${L.run}</button><button type="button" class="btn" id="p5Reset">${L.reset}</button><button type="button" class="btn" id="p5TraceBtn">${L.trace}</button><button type="button" class="btn p6ansbtn" id="p5AnsBtn">${L.answer}</button></div>
+        <div class="row"><button type="button" class="btn primary" id="p5Check">${L.check}</button><button type="button" class="btn" id="p5Run">${L.run}</button><button type="button" class="btn" id="p5Reset">${L.reset}</button><button type="button" class="btn" id="p5TraceBtn">${L.trace}</button>${p5NoAns(q) ? '' : `<button type="button" class="btn p6ansbtn" id="p5AnsBtn">${L.answer}</button>`}</div>
         ${q.hints && q.hints.length ? `<div class="p6hints"><button type="button" class="btn small" id="p5Hint">${L.hint(1, q.hints.length)}</button><ol id="p5HintList"></ol></div>` : ''}
         ${q.tests[0].in.length ? `<label class="p6in" for="p5In"><span>${L.runIn}</span><textarea id="p5In" rows="${Math.min(16, Math.max(6, q.tests[0].in.length + 1))}" spellcheck="false">${esc(q.tests[0].in.join('\n'))}</textarea></label>` : ''}
       </div></div>
@@ -4492,10 +4512,22 @@ function initTab5() {
     } else {
       const ed = $('#p5Ed'), no = $('#p5No');
       ed.value = saved !== null ? saved : (q.starter || '');
-      const nums = () => { no.textContent = Array.from({ length: Math.max(8, ed.value.split('\n').length) }, (_, i) => i + 1).join('\n'); };
+      // the editor never scrolls inside itself: it grows to fit every line, and long lines widen it so the
+      // whole box (numbers included) scrolls sideways together. Line numbers therefore always line up.
+      const box = ed.parentElement;
+      const nums = () => {
+        no.textContent = Array.from({ length: Math.max(12, ed.value.split('\n').length) }, (_, i) => i + 1).join('\n');
+        const base = Math.max(0, box.clientWidth - no.offsetWidth);
+        ed.style.width = base + 'px'; ed.style.height = 'auto';
+        if (ed.scrollWidth > ed.clientWidth) ed.style.width = (ed.scrollWidth + 2) + 'px';
+        ed.style.height = Math.max(ed.scrollHeight, no.scrollHeight) + 'px';
+        ed.scrollTop = 0; ed.scrollLeft = 0;
+      };
       nums();
+      requestAnimationFrame(() => { nums(); box.scrollLeft = 0; });
+      if (window.ResizeObserver) { if (P5.ro) P5.ro.disconnect(); let lastW = box.clientWidth; P5.ro = new ResizeObserver(() => { if (box.clientWidth !== lastW) { lastW = box.clientWidth; requestAnimationFrame(nums); } }); P5.ro.observe(box); }
       ed.oninput = () => { nums(); p6Save(q.id, ed.value); };
-      ed.onscroll = () => { no.scrollTop = ed.scrollTop; };
+      ed.onscroll = () => { ed.scrollTop = 0; ed.scrollLeft = 0; };
       ed.onkeydown = e => {
         const s = ed.selectionStart, t = ed.selectionEnd, v = ed.value;
         if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ed.setRangeText('    ', s, t, 'end'); ed.dispatchEvent(new Event('input')); }
@@ -4514,12 +4546,12 @@ function initTab5() {
     const hb = $('#p5Hint');
     if (hb) { let shown = 0; hb.onclick = () => { if (shown >= q.hints.length) return; $('#p5HintList').insertAdjacentHTML('beforeend', `<li>${esc(q.hints[shown])}</li>`); shown++; hb.textContent = shown >= q.hints.length ? L.hintDone : L.hint(shown + 1, q.hints.length); hb.disabled = shown >= q.hints.length; }; }
     const modal = $('#p5Modal');
-    const closeModal = () => { modal.hidden = true; $('#p5AnsBtn').focus(); };
-    $('#p5AnsBtn').onclick = () => { modal.hidden = false; $('#p5Stay').focus(); };
+    const closeModal = () => { modal.hidden = true; if ($('#p5AnsBtn')) $('#p5AnsBtn').focus(); };
+    if ($('#p5AnsBtn')) $('#p5AnsBtn').onclick = () => { modal.hidden = false; $('#p5Stay').focus(); };
     $('#p5Stay').onclick = closeModal;
     modal.onclick = e => { if (e.target === modal) closeModal(); };
     modal.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
-    $('#p5Give').onclick = () => { modal.hidden = true; gauntlet(showAnswer, () => $('#p5AnsBtn').focus(), q.id); };
+    $('#p5Give').onclick = () => { modal.hidden = true; gauntlet(showAnswer, () => { if ($('#p5AnsBtn')) $('#p5AnsBtn').focus(); }, q.id); };
     const showAnswer = () => {
       const lines = q.ref.split('\n').map((l, n) => `<div class="ln"><span class="no">${n + 1}</span><span>${hl(l)}</span></div>`).join('');
       const blanks = q.answers ? `<p class="p6lab">${L.blanksHead}</p><div class="p6blankans">${Object.keys(q.answers).sort().map(k => `<div><b>(${k})</b> <code>${esc(q.answers[k])}</code></div>`).join('')}</div>` : '';
@@ -5250,7 +5282,7 @@ function tab2() {
         <p class="tnote">${T.g.writeNote}</p>
         <div class="tscroll"><pre class="code blanks" id="g4Code"></pre></div>
         <div class="guide"><div class="felt-label">${T.g.guideHead}</div><ol id="g4Guide"></ol></div>
-        <div class="row" style="margin-top:10px"><button type="button" class="btn primary" id="g4CChk">${T.trCheck}</button><button type="button" class="btn" id="g4CShow">${T.trShow}</button></div>
+        <div class="row" style="margin-top:10px"><button type="button" class="btn primary" id="g4CChk">${T.trCheck}</button></div>
         <p class="fb" id="g4CFb" aria-live="polite"></p>
       </div>
     </div></div>
@@ -5325,7 +5357,6 @@ function initTab2() {
     $('#g4CScore').textContent = T.score(ok, all);
     $('#g4CFb').textContent = ok === all ? T.g.codeAll : T.g.codeSome(all - ok); $('#g4CFb').className = 'fb ' + (ok === all ? 'ok' : 'no');
   };
-  $('#g4CShow').onclick = () => { $$('#g4Code .blank').forEach(b => { b.value = G.blanks[Number(b.dataset.b)][0]; b.className = 'blank shown'; }); $('#g4CFb').textContent = T.trShown; $('#g4CFb').className = 'fb'; };
   $('#g4Skip').onclick = unlock;
   $$('#g4Mode button').forEach(b => b.onclick = () => { $$('#g4Mode button').forEach(x => x.setAttribute('aria-pressed', x === b)); UI.game = b.dataset.v; newRound(); });
   $('#g4New').onclick = newRound;
