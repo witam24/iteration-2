@@ -638,6 +638,12 @@ pre.static { border: 0; padding: 12px 16px; }
 .ed-no { flex: none; max-height: none; overflow: visible; position: sticky; left: 0; z-index: 1; background: var(--code-bg); }
 .ed textarea { flex: none; resize: none; overflow: hidden; height: auto; min-height: 0; max-height: none; }
 
+/* text cards (song titles) */
+.card.txt { width: auto; min-width: 52px; padding: 0 8px; font-family: var(--f-body); font-size: .95rem; font-weight: 700; white-space: nowrap; }
+.cards .slot:has(.card.txt) .ichip { width: 100%; min-width: 52px; }
+.cards:has(.card.txt) { gap: 8px; }
+.card.txt::before, .card.txt::after { content: none; }
+
 </style>
 </head>
 <body>
@@ -701,6 +707,7 @@ const LANGS = {
     valueLabel: '數值 x', indexLabel: '位置 i', runOp: '執行', resetList: '還原列表', current: '目前的列表',
     needNum: '請輸入整數。', full: '卡牌桌最多放 10 張卡。', empty: '列表已經是空的。',
     badIdx: (lo, hi) => `位置 i 必須在 ${lo} 至 ${hi} 之間，否則會出現 IndexError。`,
+    badMove: hi => `src 和 dst 須符合 0 ≤ src < dst ≤ ${hi}。`, badSongs: n => `請輸入 ${n} 首歌名，用逗號分隔，每個歌名最多 8 個字。`, srcLabel: 'src（原位置）', dstLabel: 'dst（新位置）',
     factsHead: '常用寫法（不用 function，除 len() 外）', factsCols: ['功能', '寫法', '例子（scores = [72, 45, 88]）'],
     facts: [
       ['讀取位置 i 的數值', 'scores[i]', 'scores[0] → 72'],
@@ -734,6 +741,12 @@ const LANGS = {
       replace: '用 new_scores 取代原本的列表。',
       endJ: '循環結束。',
       print: '輸出整個列表。',
+      movTemp: (s, v) => `temp = songs[${s}]：先把要移動的「${v}」存入 temp，否則它稍後會被覆蓋。`,
+      movRange: (a, b) => `i 由 src（${a}）開始，到 dst（${b}）為止（不包括 ${b}）。`,
+      movShift: (i, v) => `songs[${i}] = songs[${i + 1}]：把「${v}」向前移一格。`,
+      movPlace: (d, v) => `songs[${d}] = temp：把暫存的「${v}」放到位置 ${d}。`,
+      movPrintStart: '逐首輸出新的歌單，i + 1 是第幾首。',
+      movOut: (n, v) => `輸出 ${n} ${v}`,
     },
 
     // ---- tab 2 (game)
@@ -747,11 +760,16 @@ const LANGS = {
         search: ['開始時 position 設為甚麼代表「未找到」？', '檢查列表 codes 內的所有項目需要循環多少次？在哪一個位置之後需要停止循環？', '位置 i 的卡就是要找的 target 的條件是？', '找到時要記下甚麼？', '找到後用甚麼語句立即停止循環？'],
         opins: ['先在列表最後加一個空位：要接上一個怎樣的列表？', '由哪一個位置開始向左搬？搬到哪一個位置之前要停止？每次 j 怎樣改變？', '位置 j 要放入哪一張卡的數值？', '最後空出來的位置 i 要放入甚麼？'],
         opdel: ['由哪一個位置開始向右搬？在哪一個位置之前要停止循環？', '位置 j 要放入哪一張卡的數值？', '最後要刪去哪一個位置？'],
+        opset: ['搬動之前，要先把哪一首歌存入 temp？用 songs 和 src 寫出來。', 'i 由 src 開始，要在哪一個位置之前停止循環？', '位置 i 要放入哪一首歌？用 songs 和 i 寫出來。', '循環結束後，temp 裏的歌要放到哪裏？寫出整句。'],
         sorted: ['開始時先假設已排好次序，is_sorted 是甚麼？', '比較相鄰的兩張卡需要循環多少次？在哪一個位置需要停止循環？（最後一張卡沒有下一張）', '位置 i 和 i + 1 兩張卡次序錯誤的條件是？', '次序錯了時，is_sorted 變成甚麼？', '發現錯誤後用甚麼語句立即停止循環？'],
       },
       guideHead: '引導問題（對應虛線格的編號）',
       newSlot: '新空位', lastSlot: '最後一格',
       insVals: (i, x) => `（這一局：i = ${i}，x = ${x}）`, delVals: i => `（這一局：i = ${i}）`,
+      moveVals: (s, d) => `（這一局：src = ${s}，dst = ${d}）`,
+      movTempQ: s => `第 4 行 temp = songs[${s}]：temp 存放了哪一首歌？`, movTempH: (s, v) => `看位置 ${s} 那張卡：「${v}」。`,
+      movShiftQ: i => `songs[${i}] = songs[${i + 1}]：位置 ${i} 現在是哪一首歌？`, movShiftH: (i, v) => `位置 ${i} 放入右邊一張卡（位置 ${i + 1}）的歌：「${v}」。`,
+      movPlaceQ: d => `循環結束。songs[${d}] = temp：位置 ${d} 現在是哪一首歌？`, movPlaceH: v => `temp 一直保存着最初要移動的歌：「${v}」。`,
       insGrow: (x, i) => `要把 ${x} 插入到位置 ${i}。第一步先在列表最後加一個空位（0）。現在列表有多少張卡？`, insGrowH: n => `原本有 ${n} 張卡，再加一個空位。`,
       shiftRQ: (j) => `由最後向左搬：位置 ${j} 要放入左邊一張卡（位置 ${j - 1}）的數值。位置 ${j} 現在變成多少？`, shiftRH: (j, v) => `看位置 ${j - 1} 那張卡的數值：${v}。`,
       placeQ: (i, x) => `位置 ${i} 之後的卡都向右移好了。把 ${x} 放入位置 ${i}，位置 ${i} 現在是多少？`, placeH: x => `位置 i 放入的是要插入的數值 ${x}。`,
@@ -873,6 +891,7 @@ const LANGS = {
     valueLabel: 'Value x', indexLabel: 'Position i', runOp: 'Run', resetList: 'Restore list', current: 'Current list',
     needNum: 'Enter whole numbers.', full: 'The table holds at most 10 cards.', empty: 'The list is already empty.',
     badIdx: (lo, hi) => `Position i must be from ${lo} to ${hi}; otherwise an IndexError occurs.`,
+    badMove: hi => `src and dst must satisfy 0 ≤ src < dst ≤ ${hi}.`, badSongs: n => `Enter ${n} song titles separated by commas, each at most 8 characters.`, srcLabel: 'src (from)', dstLabel: 'dst (to)',
     factsHead: 'Useful list code (no functions except len())', factsCols: ['Task', 'Write', 'Example (scores = [72, 45, 88])'],
     facts: [
       ['read the value at position i', 'scores[i]', 'scores[0] → 72'],
@@ -906,6 +925,12 @@ const LANGS = {
       replace: 'Replace the old list with new_scores.',
       endJ: 'The loop ends.',
       print: 'Print the whole list.',
+      movTemp: (s, v) => `temp = songs[${s}]: first store "${v}", the song being moved, in temp; otherwise it will be overwritten.`,
+      movRange: (a, b) => `i runs from src (${a}) up to dst (${b}), not including ${b}.`,
+      movShift: (i, v) => `songs[${i}] = songs[${i + 1}]: move "${v}" one place forward.`,
+      movPlace: (d, v) => `songs[${d}] = temp: put the stored "${v}" into position ${d}.`,
+      movPrintStart: 'Print the new playlist one song at a time; i + 1 is the song number.',
+      movOut: (n, v) => `Print ${n} ${v}`,
     },
 
     g: {
@@ -918,11 +943,16 @@ const LANGS = {
         search: ['What should position start as to mean "not found"?', 'How many times must the loop run to go through every item in the list codes? After which position must it stop?', 'What is the condition for the card at position i to be the target?', 'What do you note down when it is found?', 'Which statement stops the loop at once after it is found?'],
         opins: ['To add a spare place at the end, what list do you join on?', 'Which position do you start moving from, going left? Before which position do you stop? How does j change each time?', 'Which card\'s value goes into position j?', 'What goes into the free position i at the end?'],
         opdel: ['Which position do you start moving from, going right? Before which position must the loop stop?', 'Which card\'s value goes into position j?', 'Which position is deleted at the end?'],
+        opset: ['Before anything moves, which song must be stored in temp? Write it with songs and src.', 'i starts at src. Before which position must the loop stop?', 'Which song goes into position i? Write it with songs and i.', 'After the loop, where does the song in temp go? Write the whole statement.'],
         sorted: ['Assume the line is in order at the start: what is is_sorted?', 'How many times does the loop need to run to compare neighbouring cards? At which position must it stop? (The last card has no next card.)', 'What is the condition for the cards at positions i and i + 1 to be in the wrong order?', 'When the order is wrong, what does is_sorted become?', 'Which statement stops the loop at once after a problem is found?'],
       },
       guideHead: 'Guiding questions (numbers match the dashed boxes)',
       newSlot: 'new place', lastSlot: 'last place',
       insVals: (i, x) => ` (this round: i = ${i}, x = ${x})`, delVals: i => ` (this round: i = ${i})`,
+      moveVals: (s, d) => ` (this round: src = ${s}, dst = ${d})`,
+      movTempQ: s => `Line 4, temp = songs[${s}]: which song does temp hold?`, movTempH: (s, v) => `Look at the card at position ${s}: "${v}".`,
+      movShiftQ: i => `songs[${i}] = songs[${i + 1}]: which song is at position ${i} now?`, movShiftH: (i, v) => `Position ${i} takes the song from the card to its right (position ${i + 1}): "${v}".`,
+      movPlaceQ: d => `The loop has ended. songs[${d}] = temp: which song is at position ${d} now?`, movPlaceH: v => `temp has kept the song being moved all along: "${v}".`,
       insGrow: (x, i) => `We will insert ${x} at position ${i}. First add a spare place (0) at the end. How many cards are there now?`, insGrowH: n => `There were ${n} cards; add one more place.`,
       shiftRQ: (j) => `Working from the end to the left: position ${j} takes the value of the card on its left (position ${j - 1}). What is position ${j} now?`, shiftRH: (j, v) => `Look at the card at position ${j - 1}: ${v}.`,
       placeQ: (i, x) => `Every card after position ${i} has moved right. Put ${x} into position ${i}. What is position ${i} now?`, placeH: x => `Position i takes the value being inserted, ${x}.`,
@@ -1076,8 +1106,8 @@ const APPINFO = {
       q: '如果刪去 break，而列表中有兩張卡都等於 target，position 會記下哪一個位置？', a: '記下最後一個相同項目的位置，因為循環會繼續，position 被後面的相同項目覆蓋；比較次數亦會增加到全部卡的數目。' },
     sorted: { name: '檢查是否已排序', scen: '體育老師要檢查同學是否已按身高由矮至高（遞增次序）排好隊。', track: '第 4 行 if heights[i] > heights[i + 1]:',
       q: '為甚麼 range 要寫成 range(len(heights) - 1)，而不是 range(len(heights))？', a: '因為每次要比較 heights[i] 和 heights[i + 1]。當 i 是最後一個位置時，heights[i + 1] 超出列表，會出現 IndexError。' },
-    opset: { name: '修改項目', scen: '老師發現第 i 位同學的分數輸入錯了，要把它改為 x。', track: '第 4 行 scores[i] = x',
-      q: '如果 i 等於 len(scores)，會發生甚麼事？', a: '會出現 IndexError，因為最後一個位置是 len(scores) - 1。修改只能用已存在的位置。' },
+    opset: { name: '修改項目', scen: '整理播放清單：把位置 src 的歌移到位置 dst。先把它存入 temp，中間的歌逐首向前移一格，最後把 temp 放到位置 dst。', track: '第 6 行 songs[i] = songs[i + 1]',
+      q: '如果不用 temp，在循環後直接寫 songs[dst] = songs[src]，結果會怎樣？', a: '循環已把位置 src 覆蓋成下一首歌，原本要移動的歌已經不見了，所以位置 dst 會放錯歌（變成兩首相同的歌）。必須在循環前先用 temp 記下它。' },
     opadd: { name: '加到最後', scen: '新同學插班，把他的分數 x 加到列表最後。', track: '第 3 行 scores = scores + [x]',
       q: '為甚麼要寫 scores + [x]，而不是 scores + x？', a: '+ 只可以把兩個列表接起來。x 是整數，要先用方括號變成只有一個項目的列表 [x]。' },
     opins: { name: '插入到位置 i', scen: '把分數 x 插入到位置 i，其後的卡全部向右移一格。', track: '第 6 行 scores[j] = scores[j - 1]',
@@ -1102,8 +1132,8 @@ const APPINFO = {
       q: 'If break is deleted and two cards both equal target, which position does position end up holding?', a: 'The position of the last matching card, because the loop carries on and the later match overwrites position. The number of comparisons also rises to the number of cards.' },
     sorted: { name: 'Is it in order?', scen: 'The PE teacher checks whether the students are lined up from shortest to tallest (ascending order).', track: 'line 4, if heights[i] > heights[i + 1]:',
       q: 'Why is the range range(len(heights) - 1) rather than range(len(heights))?', a: 'Each time we compare heights[i] with heights[i + 1]. When i is the last position, heights[i + 1] is past the end of the list and an IndexError occurs.' },
-    opset: { name: 'Change an item', scen: 'The teacher typed the mark at position i wrongly and needs to change it to x.', track: 'line 4, scores[i] = x',
-      q: 'What happens if i equals len(scores)?', a: 'An IndexError, because the last position is len(scores) - 1. You can only change a position that exists.' },
+    opset: { name: 'Change an item', scen: 'Tidy a playlist: move the song at position src to position dst. Store it in temp first, move each song in between one place forward, then put temp into position dst.', track: 'line 6, songs[i] = songs[i + 1]',
+      q: 'Without temp, what happens if you write songs[dst] = songs[src] after the loop?', a: 'The loop has already overwritten position src with the next song, so the song being moved is gone and position dst gets the wrong song (the same song appears twice). It must be saved in temp before the loop.' },
     opadd: { name: 'Add to the end', scen: 'A new student joins the class; add the mark x to the end of the list.', track: 'line 3, scores = scores + [x]',
       q: 'Why write scores + [x] rather than scores + x?', a: '+ can only join two lists. x is a number, so it goes in square brackets to make a one-item list, [x].' },
     opins: { name: 'Insert at position i', scen: 'Insert the mark x at position i; every card after it moves one place to the right.', track: 'line 6, scores[j] = scores[j - 1]',
@@ -4691,6 +4721,16 @@ function rep(v) {
   return String(v);
 }
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+// song-list helpers for the "change order" example (cards hold text, not numbers)
+const SONGS = ['晴天', '海闊天空', '小幸運', '孤勇者', '倔強', '富士山下', '紅日', '喜帖街', '光年之外', '稻香'];
+const pickSongs = n => { const a = SONGS.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a.slice(0, n); };
+const qrep = a => '[' + a.map(v => typeof v === 'string' ? `"${v}"` : rep(v)).join(', ') + ']';
+const txtCls = v => typeof v === 'string' ? ' txt' : '';
+function parseText(s, min, max) {
+  const v = s.split(/[,，、]+/).map(x => x.trim().replace(/^["'「『]+|["'」』]+$/g, '').trim()).filter(Boolean);
+  if (v.length < min || v.length > max || v.some(x => x.length > 8 || /["\\]/.test(x))) return null;
+  return v;
+}
 const round1 = x => Math.round(x * 10) / 10;
 function parseList(s, min, max) {
   const parts = s.split(/[,，\s]+/).filter(Boolean);
@@ -4865,14 +4905,27 @@ const APPS = {
   },
 
   /* ---- list operations without functions (tab 1) ---- */
-  opset: { op: true, needX: true, needI: true, x: 99, i: 1, def: () => [72, 45, 88, 60], min: 1, max: 9, rnd: () => Array.from({ length: rnd(3, 6) }, () => rnd(10, 99)),
-    code: (p, d, o) => [`scores = ${rep(d)}`, `i = ${o.i}`, `x = ${o.x}`, 'scores[i] = x', 'print(scores)'], cols: () => ['i', 'scores[i]', 'scores'],
+  opset: { op: true, text: true, needX: true, needI: true, x: 1, i: 4, def: () => ['晴天', '海闊天空', '小幸運', '孤勇者', '倔強', '富士山下'], min: 3, max: 8, rnd: () => pickSongs(rnd(5, 7)),
+    code: (p, d, o) => [`songs = ${qrep(d)}`, `src = ${o.x}`, `dst = ${o.i}`, 'temp = songs[src]', 'for i in range(src, dst):', '    songs[i] = songs[i + 1]', 'songs[dst] = temp', 'for i in range(len(songs)):', '    print(i + 1, songs[i])'],
+    cols: () => ['i', 'songs[i + 1]', 'songs'],
     run(d, R, o) {
-      const { st } = R; const T1 = LANGS[lang].n; const a = d.slice();
-      R.push(1, T1.start(rep(a))); R.set('i', o.i); st.cls[o.i] = 'cur'; st.ptr = at(o.i); R.push(2, T1.setI('i', o.i));
-      R.set('x', o.x, 'card'); st.trace.push([o.i, a[o.i], rep(a)]); R.push(3, T1.setI('x', o.x));
-      const old = a[o.i]; a[o.i] = o.x; st.cards = a.slice(); st.cls[o.i] = 'changed'; st.trace.push([o.i, o.x, rep(a)]); R.push(4, T1.set(o.i, old, o.x));
-      st.ptr = null; R.pr(rep(a)); R.push(5, T1.print);
+      const { st } = R; const T1 = LANGS[lang].n; const a = d.slice(); const src = o.x, dst = o.i;
+      R.push(1, T1.start(qrep(a)));
+      R.set('src', src); st.cls = {}; st.cls[src] = 'cur'; st.ptr = { idx: src, label: 'src = ' + src }; R.push(2, T1.setI('src', src));
+      R.set('dst', dst); st.cls[dst] = 'sel'; st.ptr = { idx: dst, label: 'dst = ' + dst }; R.push(3, T1.setI('dst', dst));
+      const temp = a[src]; R.set('temp', temp, 'card'); st.cls = {}; st.cls[src] = 'cur'; st.ptr = { idx: src, label: 'src = ' + src }; st.trace.push(['—', '—', qrep(a)]); R.push(4, T1.movTemp(src, temp));
+      for (let i = src; i < dst; i++) {
+        st.cls = {}; st.cls[i] = 'cur'; st.cls[i + 1] = 'done'; st.ptr = { idx: i, label: 'i = ' + i }; R.set('i', i); R.push(5, i === src ? T1.movRange(src, dst) : `i = ${i}`);
+        a[i] = a[i + 1]; st.cards = a.slice(); st.cls[i] = 'changed'; st.trace.push([i, a[i], qrep(a)]); R.push(6, T1.movShift(i, a[i]));
+      }
+      st.cls = {}; st.ptr = null; R.push(5, T1.endJ);
+      a[dst] = temp; st.cards = a.slice(); st.cls[dst] = 'changed'; st.ptr = { idx: dst, label: 'dst = ' + dst }; st.trace.push(['—', '—', qrep(a)]); R.push(7, T1.movPlace(dst, temp));
+      st.cls = {};
+      for (let i = 0; i < a.length; i++) {
+        st.ptr = { idx: i, label: 'i = ' + i }; R.set('i', i); R.push(8, i === 0 ? T1.movPrintStart : `i = ${i}`);
+        R.pr(`${i + 1} ${a[i]}`); R.push(9, T1.movOut(i + 1, a[i]));
+      }
+      st.ptr = null; R.push(8, T1.endJ);
     },
   },
   opadd: { op: true, needX: true, needI: false, x: 60, i: 0, def: () => [72, 45, 88, 60], min: 1, max: 9, rnd: () => Array.from({ length: rnd(3, 6) }, () => rnd(10, 99)),
@@ -4958,7 +5011,7 @@ function Stepper(root, getKey, getData) {
       if (f && f.ptr && f.ptr.idx === k) ptr = `<span class="ptr">${esc(f.ptr.label)}</span>`;
       if (f && f.pair && f.pair[0] === k) ptr = `<span class="ptr">i = ${k}</span>`;
       if (f && f.pair && f.pair[1] === k) ptr = `<span class="ptr two">i + 1</span>`;
-      return `<div class="slot">${ptr}<div class="card ${cls}" data-v="${v}">${v}</div><span class="idx">${k}</span></div>`;
+      return `<div class="slot">${ptr}<div class="card ${cls}${txtCls(v)}" data-v="${esc(v)}">${esc(v)}</div><span class="idx">${k}</span></div>`;
     }).join('');
   }
   function render() {
@@ -5213,7 +5266,7 @@ function initTab1() {
 }
 
 /* ===================== tab 2: be the computer ===================== */
-const GKEYS = ['sum', 'avg', 'max', 'min', 'countif', 'search', 'sorted', 'opins', 'opdel'];
+const GKEYS = ['sum', 'avg', 'max', 'min', 'countif', 'search', 'sorted', 'opset', 'opins', 'opdel'];
 /* Each game: arr name, gen() -> {cards, target?}, steps(G) -> [{k, k2, q, type, ans, vars, after}], code(G) with [[answer|alt]] blanks */
 const rg = (arr, n) => `len(${arr})|0, len(${arr})|${n}|0, ${n}`;
 const GAMES = {
@@ -5252,6 +5305,13 @@ GAMES.opins = { gen: () => { const c = Array.from({ length: 5 }, () => rnd(10, 9
     a[G.I] = G.X; st.push({ k: G.I, lab: `i = ${G.I}`, q: T.g.placeQ(G.I, G.X), type: 'num', ans: G.X, cards: a.slice(), mark: G.I, hint: T.g.placeH(G.X) });
     return st; },
   code: G => [`scores = ${rep(G.cards)}`, `i = ${G.I}`, `x = ${G.X}`, 'scores = scores + ⟦[0]⟧', `for j in range(⟦len(scores) - 1, i, -1|${G.cards.length}, i, -1|${G.cards.length}, ${G.I}, -1|len(scores) - 1, ${G.I}, -1⟧):`, '    scores[j] = ⟦scores[j - 1]⟧', 'scores[i] = ⟦x⟧', 'print(scores)'] };
+GAMES.opset = { gen: () => { const c = pickSongs(6), S = rnd(0, 2); return { cards: c, S, D: rnd(S + 2, 5) }; }, init: G => ({ src: G.S, dst: G.D }),
+  steps(G) { const a = G.cards.slice(), opts = G.cards.slice(), st = [], temp = a[G.S];
+    st.push({ k: G.S, lab: `src = ${G.S}`, q: T.g.movTempQ(G.S), type: 'pick', opts, ans: temp, vars: { temp }, hint: T.g.movTempH(G.S, temp) });
+    for (let i = G.S; i < G.D; i++) { const v = a[i + 1]; a[i] = v; st.push({ k: i, k2: i + 1, lab: `i = ${i}`, lab2: 'i + 1', q: T.g.movShiftQ(i), type: 'pick', opts, ans: v, cards: a.slice(), mark: i, vars: { i }, hint: T.g.movShiftH(i, v) }); }
+    a[G.D] = temp; st.push({ k: G.D, lab: `dst = ${G.D}`, q: T.g.movPlaceQ(G.D), type: 'pick', opts, ans: temp, cards: a.slice(), mark: G.D, hint: T.g.movPlaceH(temp) });
+    return st; },
+  code: G => [`songs = ${qrep(G.cards)}`, `src = ${G.S}`, `dst = ${G.D}`, `temp = ⟦songs[src]|songs[${G.S}]⟧`, `for i in range(src, ⟦dst|${G.D}⟧):`, '    songs[i] = ⟦songs[i + 1]|songs[1 + i]⟧', `⟦songs[dst] = temp|songs[${G.D}] = temp⟧`, 'for i in range(len(songs)):', '    print(i + 1, songs[i])'] };
 GAMES.opdel = { gen: () => { const c = Array.from({ length: 6 }, () => rnd(10, 99)); return { cards: c, I: rnd(0, 3) }; }, init: G => ({ i: G.I }),
   steps(G) { const a = G.cards.slice(), st = [];
     for (let j = G.I; j < a.length - 1; j++) { const v = a[j + 1]; a[j] = v; st.push({ k: j, k2: j + 1, lab: `j = ${j}`, lab2: 'j + 1', q: T.g.shiftLQ(j, a.slice()), type: 'num', ans: v, cards: a.slice(), mark: j, vars: { j }, hint: T.g.shiftLH(j, v) }); }
@@ -5296,7 +5356,7 @@ function initTab2() {
     const g = GAMES[UI.game];
     G = Object.assign({ m: UI.game, n: 0, first: 0, asked: 0, tried: false, msg: '', ok: null }, g.gen());
     G.vars = g.init(G); G.steps = g.steps(G); G.done = false; G.cls = {}; G.cur = G.cards.slice();
-    $('#g4Scen').textContent = AI[G.m].scen + (G.m === 'search' ? T.g.target(G.target) : G.m === 'opins' ? T.g.insVals(G.I, G.X) : G.m === 'opdel' ? T.g.delVals(G.I) : '');
+    $('#g4Scen').textContent = AI[G.m].scen + (G.m === 'search' ? T.g.target(G.target) : G.m === 'opins' ? T.g.insVals(G.I, G.X) : G.m === 'opdel' ? T.g.delVals(G.I) : G.m === 'opset' ? T.g.moveVals(G.S, G.D) : '');
     $('#g4Lock').hidden = false; $('#g4Write').hidden = true; $('#g4CScore').textContent = '';
     draw();
   }
@@ -5306,7 +5366,7 @@ function initTab2() {
       let cls = G.cls[k] || '', ptr = '';
       if (!G.done && s && s.k === k) { cls = 'cur'; ptr = `<span class="ptr">${esc(s.lab || 'i = ' + k)}</span>`; }
       if (!G.done && s && s.k2 === k) { cls = 'cur'; ptr = `<span class="ptr two">${esc(s.lab2 || 'i + 1')}</span>`; }
-      return `<div class="slot">${ptr}<div class="card ${cls}" data-v="${v}">${v}</div><span class="ichip ${s && s.k === k && !G.done ? 'on' : ''}">${k}</span></div>`;
+      return `<div class="slot">${ptr}<div class="card ${cls}${txtCls(v)}" data-v="${esc(v)}">${esc(v)}</div><span class="ichip ${s && s.k === k && !G.done ? 'on' : ''}">${k}</span></div>`;
     }).join('');
     $('#g4Vars').innerHTML = Object.entries(G.vars).map(([n, v]) => `<div class="vbox"><div class="vcard">${esc(v)}</div><span class="vname">${n}</span></div>`).join('') + (G.m === 'search' ? `<div class="vbox"><div class="vchip">${G.target}</div><span class="vname">target</span></div>` : '');
     $('#g4Score').textContent = T.g.score(G.first, G.asked);
@@ -5318,6 +5378,9 @@ function initTab2() {
       act.innerHTML = `<label class="field" for="g4In"><span>=</span><input class="num" id="g4In" type="number" step="any"></label><button type="button" class="btn primary" id="g4Chk">${T.checkBtn}</button>`;
       const chk = () => { if ($('#g4In').value.trim() === '') return; answer(Math.abs(Number($('#g4In').value) - s.ans) < 0.051); };
       $('#g4Chk').onclick = chk; $('#g4In').onkeydown = e => { if (e.key === 'Enter') chk(); }; $('#g4In').focus({ preventScroll: true });
+    } else if (s.type === 'pick') {
+      act.innerHTML = s.opts.map(o => `<button type="button" class="btn" data-p="${esc(o)}">${esc(o)}</button>`).join('');
+      $$('#g4Act button').forEach(b => b.onclick = () => answer(b.dataset.p === s.ans));
     } else {
       act.innerHTML = `<button type="button" class="btn good" data-a="1">${T.g.yes}</button><button type="button" class="btn bad" data-a="0">${T.g.no}</button>`;
       $$('#g4Act button').forEach(b => b.onclick = () => answer((b.dataset.a === '1') === s.ans));
@@ -5366,7 +5429,7 @@ function initTab2() {
 /* ===================== tab 3: number cards ===================== */
 const T3 = ['load', 'sum', 'avg', 'max', 'min', 'countif', 'search', 'sorted', 'opset', 'opadd', 'opins', 'opdel'];
 const DATA3 = {};
-const TRACK_OP = { opset: 4, opadd: 3, opins: 6, opdel: 4 };
+const TRACK_OP = { opset: 6, opadd: 3, opins: 6, opdel: 4 };
 function tab3() {
   return `
   <div><h2 class="sec">${T.t3Title}</h2><p class="lead">${T.t3Lead}</p></div>
@@ -5402,6 +5465,7 @@ function initTab3() {
     $$('#t3Apps button').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === k));
     $('#t3Tag').textContent = (lang === 'zh' ? '情境 · ' : 'Scenario · ') + a.name; $('#t3Scen').textContent = a.scen;
     $('#t3Data').value = D.data.join(', ');
+    $('#t3XWrap span').textContent = k === 'opset' ? T.srcLabel : T.valueLabel; $('#t3IWrap span').textContent = k === 'opset' ? T.dstLabel : T.indexLabel;
     $('#t3TWrap').hidden = k !== 'search'; if (k === 'search') $('#t3Target').value = D.target;
     $('#t3XWrap').hidden = !A.needX; $('#t3IWrap').hidden = !A.needI; $('#t3X').value = D.x ?? ''; $('#t3I').value = D.i ?? '';
     $('#t3Msg').textContent = ''; $('#t3Msg').className = 'msg';
@@ -5413,15 +5477,16 @@ function initTab3() {
   function validOp(k, d, x, i) {
     const A = APPS[k];
     if ((A.needX && (!Number.isInteger(x) || Math.abs(x) > 999)) || (A.needI && !Number.isInteger(i))) return T.needNum;
+    if (k === 'opset' && !(x >= 0 && x < i && i <= d.length - 1)) return T.badMove(d.length - 1);
     if ((k === 'opadd' || k === 'opins') && d.length >= 10) return T.full;
-    if ((k === 'opset' || k === 'opdel') && (i < 0 || i > d.length - 1)) return T.badIdx(0, d.length - 1);
+    if (k === 'opdel' && (i < 0 || i > d.length - 1)) return T.badIdx(0, d.length - 1);
     if (k === 'opins' && (i < 0 || i > d.length)) return T.badIdx(0, d.length);
     return '';
   }
   $$('#t3Apps button').forEach(b => b.onclick = () => { UI.app = b.dataset.k; show(); });
   $('#t3Apply').onclick = () => {
-    const k = UI.app, A = APPS[k]; const v = parseList($('#t3Data').value, A.min, A.max);
-    if (!v) return err(T.badData(`${A.min}–${A.max}`));
+    const k = UI.app, A = APPS[k]; const v = A.text ? parseText($('#t3Data').value, A.min, A.max) : parseList($('#t3Data').value, A.min, A.max);
+    if (!v) return err(A.text ? T.badSongs(`${A.min}–${A.max}`) : T.badData(`${A.min}–${A.max}`));
     if (k === 'search') { const tg = Number($('#t3Target').value); if ($('#t3Target').value.trim() === '' || !Number.isInteger(tg)) return err(T.needNum); DATA3[k].target = tg; }
     if (A.op) {
       const x = $('#t3X').value.trim() === '' ? NaN : Number($('#t3X').value), i = $('#t3I').value.trim() === '' ? NaN : Number($('#t3I').value);
@@ -5434,7 +5499,8 @@ function initTab3() {
   $('#t3Rand').onclick = () => {
     const k = UI.app, D = DATA3[k]; D.data = APPS[k].rnd();
     if (k === 'search') D.target = Math.random() < .75 ? D.data[rnd(0, D.data.length - 1)] : rnd(500, 999);
-    if (APPS[k].op) { D.x = rnd(10, 99); D.i = rnd(0, k === 'opins' ? D.data.length : D.data.length - 1); }
+    if (k === 'opset') { D.x = rnd(0, D.data.length - 3); D.i = rnd(D.x + 2, D.data.length - 1); }
+    else if (APPS[k].op) { D.x = rnd(10, 99); D.i = rnd(0, k === 'opins' ? D.data.length : D.data.length - 1); }
     show();
   };
   $('#t3Ans').onclick = () => { $('#t3A').hidden = false; };
